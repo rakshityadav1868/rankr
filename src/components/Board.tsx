@@ -39,6 +39,7 @@ type Quote = {
   currentRank: number | null;
   minTotal: number;
   topPrice: number;
+  projectedRank: number | null;
 };
 
 const PAGE_SIZE = 15;
@@ -120,6 +121,18 @@ export default function Board() {
     }
   }, []);
 
+  const listings = useMemo(() => data?.listings ?? [], [data]);
+  const minBid = data?.minBid ?? 1;
+  const topPrice = Math.max(minBid, (data?.topAmount ?? 0) + (data?.step ?? 1));
+  const total = data?.total ?? 0;
+  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+  const floor = quote?.currentTotal ? quote.currentTotal + 1 : minBid;
+  const suggested = quote?.currentTotal ? quote.currentTotal + 1 : topPrice;
+  const shown = amount === "" ? suggested : Number(amount);
+  const validAmount = Number.isInteger(shown) && shown >= floor;
+  const charge = quote?.currentTotal ? Math.max(0, shown - quote.currentTotal) : shown;
+
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- initial fetch plus polling
     load(page);
@@ -174,7 +187,8 @@ export default function Board() {
     };
   }, [load]);
 
-  // Live quote for whatever is typed in the URL box.
+  // Live quote for whatever is typed in the URL box, including the place the
+  // current amount would land. Priced by the database, not guessed here.
   useEffect(() => {
     const t = setTimeout(async () => {
       if (!url.trim()) {
@@ -182,7 +196,9 @@ export default function Board() {
         return;
       }
       try {
-        const res = await fetch(`/api/preview?url=${encodeURIComponent(url)}`);
+        const query = new URLSearchParams({ url });
+        if (Number.isInteger(shown) && shown > 0) query.set("amount", String(shown));
+        const res = await fetch(`/api/preview?${query}`);
         const json = await res.json();
         setQuote(json.valid ? json : null);
       } catch {
@@ -190,19 +206,7 @@ export default function Board() {
       }
     }, 350);
     return () => clearTimeout(t);
-  }, [url]);
-
-  const listings = useMemo(() => data?.listings ?? [], [data]);
-  const minBid = data?.minBid ?? 1;
-  const topPrice = Math.max(minBid, (data?.topAmount ?? 0) + (data?.step ?? 1));
-  const total = data?.total ?? 0;
-  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
-
-  const floor = quote?.currentTotal ? quote.currentTotal + 1 : minBid;
-  const suggested = quote?.currentTotal ? quote.currentTotal + 1 : topPrice;
-  const shown = amount === "" ? suggested : Number(amount);
-  const validAmount = Number.isInteger(shown) && shown >= floor;
-  const charge = quote?.currentTotal ? Math.max(0, shown - quote.currentTotal) : shown;
+  }, [url, shown]);
 
   function step(delta: number) {
     const base = Number.isFinite(shown) ? shown : floor;
@@ -385,6 +389,19 @@ export default function Board() {
             </form>
 
             <div className="mt-3 space-y-1 px-1 text-[13px] text-muted">
+              {quote?.projectedRank && validAmount && (
+                <p className="text-[14px] text-ink">
+                  <b className="tabular">{money(shown)}</b> puts you at{" "}
+                  <b className="tabular text-accent">place #{quote.projectedRank}</b>
+                  {quote.projectedRank > 1 && (
+                    <>
+                      {" "}
+                      · <b className="tabular">{money(topPrice)}</b> takes the top
+                    </>
+                  )}
+                </p>
+              )}
+
               {quote?.currentRank ? (
                 <p>
                   <b className="text-ink">{quote.label}</b> already sits at{" "}
@@ -396,8 +413,8 @@ export default function Board() {
                 <p>The board is empty, so {money(minBid)} makes you number one.</p>
               ) : (
                 <p>
-                  {money(topPrice)} takes the top spot right now. Any place costs one dollar more
-                  than the site sitting on it.
+                  Matching a total does not take its place: ties go to whoever got there first, so
+                  bid one dollar more than the site you want to pass.
                 </p>
               )}
               {!validAmount && (

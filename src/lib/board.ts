@@ -228,12 +228,25 @@ export type Quote = {
   minTotal: number;
   topPrice: number;
   topAmount: number;
+  /** Where the asked-for total would land, when an amount was supplied. */
+  projectedRank: number | null;
 };
 
-/** What this target costs right now, straight from the database. */
-export async function quoteFor(target: Target): Promise<Quote> {
+/**
+ * What this target costs right now, straight from the database.
+ *
+ * When `amount` is given it also works out the place that total would buy.
+ * Anything already sitting on the same total keeps the better place, because
+ * ties go to whoever got there first, so matching the top of the board lands
+ * you just under it rather than on it.
+ */
+export async function quoteFor(target: Target, amount?: number | null): Promise<Quote> {
   await ensureSchema();
-  const [row] = await sql<{ amount: number | null; rank: string | null; top: string }[]>`
+  const asked = typeof amount === "number" && Number.isInteger(amount) && amount > 0 ? amount : null;
+
+  const [row] = await sql<
+    { amount: number | null; rank: string | null; top: string; projected: string | null }[]
+  >`
     WITH ranked AS (
       SELECT url_key, amount,
              ROW_NUMBER() OVER (ORDER BY amount DESC, updated_at ASC, id ASC) AS rank
@@ -242,7 +255,12 @@ export async function quoteFor(target: Target): Promise<Quote> {
     SELECT
       (SELECT amount FROM ranked WHERE url_key = ${target.urlKey}) AS amount,
       (SELECT rank::text FROM ranked WHERE url_key = ${target.urlKey}) AS rank,
-      (SELECT COALESCE(MAX(amount), 0)::text FROM listings) AS top
+      (SELECT COALESCE(MAX(amount), 0)::text FROM listings) AS top,
+      CASE WHEN ${asked}::int IS NULL THEN NULL ELSE (
+        SELECT (COUNT(*) + 1)::text
+        FROM listings
+        WHERE amount >= ${asked}::int AND url_key <> ${target.urlKey}
+      ) END AS projected
   `;
 
   const currentTotal = row.amount ?? 0;
@@ -256,6 +274,7 @@ export async function quoteFor(target: Target): Promise<Quote> {
     minTotal: Math.max(MIN_BID, currentTotal + STEP),
     topPrice: Math.max(MIN_BID, topAmount + STEP),
     topAmount,
+    projectedRank: row.projected ? Number(row.projected) : null,
   };
 }
 
