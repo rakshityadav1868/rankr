@@ -135,6 +135,16 @@ function toListing(row: ListingRow): Listing {
   };
 }
 
+/** Live records, recalculated from real board data on every load. */
+export type Records = {
+  /** Largest single settled payment. */
+  topBid: { label: string; amount: number } | null;
+  /** Longest run at place #1, past or ongoing. */
+  reign: { label: string; seconds: number; current: boolean } | null;
+  /** Listing with the most outbound clicks. */
+  clicked: { label: string; clicks: number } | null;
+};
+
 export type BoardPage = {
   listings: Listing[];
   page: number;
@@ -147,6 +157,9 @@ export type BoardPage = {
   activity: ActivityItem[];
   minBid: number;
   step: number;
+  /** When the current #1 took the crown, epoch ms. */
+  crownedAt: number | null;
+  records: Records;
 };
 
 export async function getBoardPage(page: number, pageSize: number): Promise<BoardPage> {
@@ -165,6 +178,10 @@ export async function getBoardPage(page: number, pageSize: number): Promise<Boar
       clicks: string;
       top: string;
       clicks24h: string;
+      leader: { label: string; crowned_at: string | null } | null;
+      bigbid: { label: string; amount: number } | null;
+      clicked: { label: string; clicks: number } | null;
+      pastreign: { label: string; secs: number } | null;
     }[]
   >`
     WITH ranked AS (
@@ -189,14 +206,46 @@ export async function getBoardPage(page: number, pageSize: number): Promise<Boar
       WHERE b.status = 'paid' AND b.settled_at IS NOT NULL
       ORDER BY b.settled_at DESC
       LIMIT 12
+    ),
+    leader AS (
+      SELECT label, crowned_at::text
+      FROM listings ORDER BY amount DESC, updated_at ASC, id ASC LIMIT 1
+    ),
+    bigbid AS (
+      SELECT label, applied_delta AS amount
+      FROM bids WHERE status = 'paid' AND applied_delta IS NOT NULL
+      ORDER BY applied_delta DESC, settled_at ASC LIMIT 1
+    ),
+    clicked AS (
+      SELECT label, clicks FROM listings WHERE clicks > 0
+      ORDER BY clicks DESC, updated_at ASC LIMIT 1
+    ),
+    pastreign AS (
+      SELECT l.label, EXTRACT(EPOCH FROM (r.ended_at - r.started_at))::float AS secs
+      FROM reigns r JOIN listings l ON l.id = r.listing_id
+      ORDER BY r.ended_at - r.started_at DESC LIMIT 1
     )
     SELECT
       (SELECT json_agg(page ORDER BY page.rank) FROM page) AS listings,
       (SELECT json_agg(recent) FROM recent) AS activity,
       stats.total, stats.pot, stats.clicks, stats.top,
-      (SELECT COUNT(*)::text FROM clicks WHERE at > now() - interval '24 hours') AS clicks24h
+      (SELECT COUNT(*)::text FROM clicks WHERE at > now() - interval '24 hours') AS clicks24h,
+      (SELECT row_to_json(leader) FROM leader) AS leader,
+      (SELECT row_to_json(bigbid) FROM bigbid) AS bigbid,
+      (SELECT row_to_json(clicked) FROM clicked) AS clicked,
+      (SELECT row_to_json(pastreign) FROM pastreign) AS pastreign
     FROM stats
   `;
+
+  const crownedAt = row.leader?.crowned_at ? new Date(row.leader.crowned_at).getTime() : null;
+  const currentSecs = crownedAt ? Math.max(0, (Date.now() - crownedAt) / 1000) : 0;
+  const pastSecs = row.pastreign?.secs ?? 0;
+  const reign =
+    currentSecs === 0 && pastSecs === 0
+      ? null
+      : currentSecs >= pastSecs
+        ? { label: row.leader!.label, seconds: Math.round(currentSecs), current: true }
+        : { label: row.pastreign!.label, seconds: Math.round(pastSecs), current: false };
 
   return {
     listings: (row.listings ?? []).map(toListing),
@@ -217,6 +266,12 @@ export async function getBoardPage(page: number, pageSize: number): Promise<Boar
     })),
     minBid: MIN_BID,
     step: STEP,
+    crownedAt,
+    records: {
+      topBid: row.bigbid ? { label: row.bigbid.label, amount: row.bigbid.amount } : null,
+      reign,
+      clicked: row.clicked ? { label: row.clicked.label, clicks: row.clicked.clicks } : null,
+    },
   };
 }
 
@@ -387,6 +442,21 @@ export async function settleBid(bidId: string, paymentId: string | null): Promis
       SET listing_id = ${listing.id}, applied_delta = ${delta}, rank_after = ${Number(rank)}
       WHERE id = ${bid.id}
     `;
+
+    // Crown bookkeeping: when the leader changed, the dethroned run is filed
+    // into reigns and the new leader's clock starts now.
+    const [leader] = await tx<{ id: string; crowned_at: string | null }[]>`
+      SELECT id, crowned_at FROM listings ORDER BY amount DESC, updated_at ASC, id ASC LIMIT 1
+    `;
+    if (leader && !leader.crowned_at) {
+      await tx`
+        INSERT INTO reigns (listing_id, started_at, ended_at)
+        SELECT id, crowned_at, now() FROM listings
+        WHERE crowned_at IS NOT NULL AND id <> ${leader.id}
+      `;
+      await tx`UPDATE listings SET crowned_at = NULL WHERE crowned_at IS NOT NULL AND id <> ${leader.id}`;
+      await tx`UPDATE listings SET crowned_at = now() WHERE id = ${leader.id}`;
+    }
 
     return { listingId: listing.id, amount: listing.amount, rank: Number(rank), delta };
   });

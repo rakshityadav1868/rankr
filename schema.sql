@@ -12,7 +12,9 @@ CREATE TABLE IF NOT EXISTS listings (
   amount       integer NOT NULL CHECK (amount >= 0),
   clicks       integer NOT NULL DEFAULT 0 CHECK (clicks >= 0),
   created_at   timestamptz NOT NULL DEFAULT now(),
-  updated_at   timestamptz NOT NULL DEFAULT now()
+  updated_at   timestamptz NOT NULL DEFAULT now(),
+  -- Set while the listing holds place #1, cleared when it is dethroned.
+  crowned_at   timestamptz
 );
 CREATE INDEX IF NOT EXISTS listings_rank_idx ON listings (amount DESC, updated_at ASC);
 
@@ -45,3 +47,11 @@ CREATE TABLE IF NOT EXISTS clicks (
   at         timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS clicks_at_idx ON clicks (at DESC);
+
+-- Finished runs at place #1, one row per dethroned leader.
+CREATE TABLE IF NOT EXISTS reigns (
+  id         bigserial PRIMARY KEY,
+  listing_id text NOT NULL,
+  started_at timestamptz NOT NULL,
+  ended_at   timestamptz NOT NULL
+);

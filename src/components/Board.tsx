@@ -18,6 +18,12 @@ type Listing = {
 
 type ActivityItem = { id: string; label: string; host: string; amount: number; rank: number; at: number };
 
+type Records = {
+  topBid: { label: string; amount: number } | null;
+  reign: { label: string; seconds: number; current: boolean } | null;
+  clicked: { label: string; clicks: number } | null;
+};
+
 type BoardResponse = {
   listings: Listing[];
   page: number;
@@ -30,6 +36,8 @@ type BoardResponse = {
   activity: ActivityItem[];
   minBid: number;
   step: number;
+  crownedAt: number | null;
+  records: Records;
 };
 
 type Quote = {
@@ -64,6 +72,16 @@ function ago(ts: number) {
   if (h < 24) return `${h} hour${h === 1 ? "" : "s"} ago`;
   const d = Math.floor(h / 24);
   return d === 1 ? "yesterday" : `${d} days ago`;
+}
+
+/** "34m", "4h 34m", "3d 2h" - how long a crown has been held. */
+function span(seconds: number) {
+  const m = Math.max(1, Math.floor(seconds / 60));
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ${m % 60}m`;
+  const d = Math.floor(h / 24);
+  return `${d}d ${h % 24}h`;
 }
 
 function Favicon({ host, label }: { host: string; label: string }) {
@@ -258,7 +276,10 @@ export default function Board() {
     }
   }
 
-  const ticker = listings.slice(0, 12);
+  // The ticker prefers real recent bids; a fresh board falls back to the top listings.
+  const ticker: { id: string; rank: number; label: string; amount: number; at?: number }[] =
+    data?.activity?.length ? data.activity : listings.slice(0, 12);
+  const records = data?.records;
   const statusColor =
     status.kind === "error" ? "text-red-600" : status.kind === "ok" ? "text-good" : "text-muted";
 
@@ -306,6 +327,7 @@ export default function Board() {
                 <span className="tabular text-accent">#{l.rank}</span>
                 <span className="font-medium">{l.label}</span>
                 <span className="tabular text-muted">{money(l.amount)}</span>
+                {l.at ? <span className="text-muted">{ago(l.at)}</span> : null}
                 <span className="text-line">•</span>
               </span>
             ))}
@@ -326,6 +348,21 @@ export default function Board() {
             No voting, no curation, no gatekeepers. Whoever pays the most sits at the top, plain and
             simple, until the next bid knocks them down.
           </p>
+
+          {total > 0 && (
+            <button
+              onClick={() => claim(topPrice)}
+              className="mt-4 flex items-center gap-2 rounded-full border border-line bg-card px-4 py-2 text-[13px] font-medium shadow-sm transition hover:border-accent hover:text-accent"
+            >
+              <span aria-hidden>👑</span>
+              <span>
+                #1 costs <b className="tabular">{money(topPrice)}</b> right now
+              </span>
+              <span aria-hidden className="text-muted">
+                →
+              </span>
+            </button>
+          )}
 
           <div ref={cardRef} id="bid" className="mt-7 rounded-2xl border border-line bg-card p-4 shadow-sm">
             <form onSubmit={submit} className="space-y-3">
@@ -538,6 +575,11 @@ export default function Board() {
                         </p>
                       )}
                       <div className="mt-1.5 flex flex-wrap items-center gap-x-3 text-[13px] tabular text-muted">
+                        {l.rank === 1 && data?.crownedAt && (
+                          <span className="font-semibold text-accent">
+                            👑 #1 for {span((nowMs() - data.crownedAt) / 1000)}
+                          </span>
+                        )}
                         <span>{ago(l.updatedAt)}</span>
                         <span className="flex items-center gap-1.5">
                           <span className="h-1.5 w-1.5 rounded-full bg-good" />
@@ -581,8 +623,117 @@ export default function Board() {
               ))}
             </div>
           )}
+
+          {records && (records.topBid || records.reign || records.clicked) && (
+            <section className="mt-8">
+              <h2 className="text-lg font-bold tracking-tight">Hall of fame</h2>
+              <p className="mt-1 text-[13px] text-muted">
+                Live records, calculated from real board data.
+              </p>
+              <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                {records.topBid && (
+                  <div className="rounded-2xl border border-line bg-card p-4 shadow-sm">
+                    <p className="text-[12px] font-semibold uppercase tracking-wide text-muted">
+                      👑 Biggest single bid
+                    </p>
+                    <p className="mt-2 text-2xl font-extrabold tabular">
+                      {money(records.topBid.amount)}
+                    </p>
+                    <p className="mt-1 truncate text-[13px] text-muted">
+                      paid by <b className="text-ink">{records.topBid.label}</b>
+                    </p>
+                  </div>
+                )}
+                {records.reign && (
+                  <div className="rounded-2xl border border-line bg-card p-4 shadow-sm">
+                    <p className="text-[12px] font-semibold uppercase tracking-wide text-muted">
+                      ⏱ Longest run at #1
+                    </p>
+                    <p className="mt-2 text-2xl font-extrabold tabular">
+                      {span(records.reign.seconds)}
+                    </p>
+                    <p className="mt-1 truncate text-[13px] text-muted">
+                      <b className="text-ink">{records.reign.label}</b>
+                      {records.reign.current ? ", still counting" : ""}
+                    </p>
+                  </div>
+                )}
+                {records.clicked && (
+                  <div className="rounded-2xl border border-line bg-card p-4 shadow-sm">
+                    <p className="text-[12px] font-semibold uppercase tracking-wide text-muted">
+                      🔥 Most clicked
+                    </p>
+                    <p className="mt-2 text-2xl font-extrabold tabular">
+                      {records.clicked.clicks.toLocaleString()}
+                    </p>
+                    <p className="mt-1 truncate text-[13px] text-muted">
+                      outbound visits to <b className="text-ink">{records.clicked.label}</b>
+                    </p>
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
         </div>
       </main>
+
+      <section className="border-t border-line bg-white">
+        <div className="mx-auto max-w-6xl px-5 py-14">
+          <h2 className="text-2xl font-extrabold tracking-tight">How does this work?</h2>
+          <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {[
+              {
+                n: "01",
+                title: "Drop anything",
+                body: "Paste any public URL. An app, a video, a repo, your cat's homepage.",
+              },
+              {
+                n: "02",
+                title: "Bid",
+                body: `Beat the current #1 to take the crown. Anything from ${money(minBid)} up still lands you somewhere on the board.`,
+              },
+              {
+                n: "03",
+                title: "Climb",
+                body: "Your place is your lifetime total. That is the entire ranking algorithm.",
+              },
+              {
+                n: "04",
+                title: "Get outbid",
+                body: "Someone pays a dollar more and takes your spot. Your listing stays on the board forever.",
+              },
+            ].map((s) => (
+              <div key={s.n} className="rounded-2xl border border-line bg-card p-5 shadow-sm">
+                <span className="text-[13px] font-bold tabular text-accent">{s.n}</span>
+                <h3 className="mt-2 text-[15px] font-semibold">{s.title}</h3>
+                <p className="mt-1.5 text-[14px] leading-relaxed text-muted">{s.body}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-10 rounded-2xl bg-tint p-8 text-center sm:p-12">
+            <p className="text-[13px] font-semibold uppercase tracking-wide text-muted">
+              The world&apos;s simplest advertising platform
+            </p>
+            <p className="mx-auto mt-3 max-w-2xl text-2xl font-extrabold leading-snug tracking-tight sm:text-3xl">
+              No algorithm. No auction optimization. No mysterious ranking. $100 beats $99. That is
+              the whole product.
+            </p>
+            <a
+              href="#bid"
+              className="mt-6 inline-block rounded-xl bg-accent px-6 py-3 text-[15px] font-semibold text-white transition hover:brightness-110"
+            >
+              Bid something →
+            </a>
+            <p className="mt-3 text-[12px] text-muted">
+              Minimum bid {money(minBid)} · whole dollars ·{" "}
+              <Link href="/rules" className="text-accent hover:underline">
+                full rules
+              </Link>
+            </p>
+          </div>
+        </div>
+      </section>
 
       <footer className="mt-8 border-t border-line bg-white">
         <div className="mx-auto max-w-6xl px-5 py-8">

@@ -99,13 +99,30 @@ export function ensureSchema(): Promise<void> {
           )
         `;
         await tx`CREATE INDEX IF NOT EXISTS clicks_at_idx ON clicks (at DESC)`;
+        await tx`ALTER TABLE listings ADD COLUMN IF NOT EXISTS crowned_at timestamptz`;
+        await tx`
+          CREATE TABLE IF NOT EXISTS reigns (
+            id         bigserial PRIMARY KEY,
+            listing_id text NOT NULL,
+            started_at timestamptz NOT NULL,
+            ended_at   timestamptz NOT NULL
+          )
+        `;
+        // Existing boards deployed before crown tracking: crown the current
+        // leader once, dating the reign from its last bid.
+        await tx`
+          UPDATE listings SET crowned_at = updated_at
+          WHERE id = (SELECT id FROM listings ORDER BY amount DESC, updated_at ASC, id ASC LIMIT 1)
+            AND NOT EXISTS (SELECT 1 FROM listings WHERE crowned_at IS NOT NULL)
+        `;
       });
     } catch (err) {
       // Another instance may have won the race. If the tables are there, carry on.
       const [{ ok }] = await sql<{ ok: boolean }[]>`
         SELECT to_regclass('public.listings') IS NOT NULL
            AND to_regclass('public.bids') IS NOT NULL
-           AND to_regclass('public.clicks') IS NOT NULL AS ok
+           AND to_regclass('public.clicks') IS NOT NULL
+           AND to_regclass('public.reigns') IS NOT NULL AS ok
       `;
       if (!ok) throw err;
     }

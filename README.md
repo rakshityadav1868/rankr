@@ -15,6 +15,9 @@ Next.js 16 (App Router), Tailwind 4, Supabase Postgres, Dodo Payments. No auth.
 - Money is added to your total when the payment clears, so a bid that gets
   outbid mid checkout still credits every dollar it paid.
 - Nothing expires and nothing is removed by being outbid.
+- The current #1 wears a crown with its hold time. When the leader changes, the
+  finished run is filed into `reigns`, which feeds the hall of fame records
+  (biggest single bid, longest run at #1, most clicked) on the homepage.
 
 Constants live at the top of `src/lib/board.ts` (`MIN_BID`, `STEP`, `MAX_BID`).
 
