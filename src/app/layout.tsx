@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Script from "next/script";
 import { Analytics } from "@vercel/analytics/next";
 import "./globals.css";
 import { siteUrl } from "@/lib/payments";
@@ -30,6 +31,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className="min-h-screen antialiased">
         {children}
         <Analytics />
+        <Script
+          defer
+          data-website-id="dfid_6SqcHDR2Ov5ruyGYeniZg"
+          data-domain="rankr.lol"
+          src="https://datafa.st/js/script.js"
+        />
       </body>
     </html>
   );
