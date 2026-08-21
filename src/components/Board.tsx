@@ -304,7 +304,7 @@ export default function Board() {
             [...ticker, ...ticker].map((l, i) => (
               <span key={`${l.id}-${i}`} className="flex shrink-0 items-center gap-2">
                 <span className="tabular text-accent">#{l.rank}</span>
-                <span className="font-medium">{clean(l.title || l.label)}</span>
+                <span className="font-medium">{l.label}</span>
                 <span className="tabular text-muted">{money(l.amount)}</span>
                 <span className="text-line">•</span>
               </span>
@@ -526,11 +526,15 @@ export default function Board() {
                         rel="noreferrer sponsored"
                         className="block truncate text-[15px] font-semibold hover:text-accent"
                       >
-                        {clean(l.title || l.label)}
+                        {l.label}
                       </a>
-                      {l.description && (
+                      {(l.title || l.description) && (
                         <p className="mt-0.5 line-clamp-2 text-[14px] leading-snug text-muted">
-                          {clean(l.description)}
+                          {clean(
+                            [l.title, l.description]
+                              .filter((part) => part && part !== l.label)
+                              .join(" · ")
+                          )}
                         </p>
                       )}
                       <div className="mt-1.5 flex flex-wrap items-center gap-x-3 text-[13px] tabular text-muted">
