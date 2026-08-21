@@ -314,13 +314,13 @@ export default function Board() {
       <main className="mx-auto grid max-w-6xl gap-8 px-5 py-12 lg:grid-cols-[minmax(0,420px)_minmax(0,1fr)]">
         <div className="lg:sticky lg:top-28 lg:self-start">
           <h1 className="text-[44px] font-extrabold leading-[1.03] tracking-tight">
-            Bigger bid.
+            Outbid them.
             <br />
-            <span className="text-muted">Better position.</span>
+            <span className="text-muted">Own the top spot.</span>
           </h1>
           <p className="mt-4 max-w-md text-[15px] leading-relaxed text-muted">
-            No judges, no votes, no secret sauce. Name your price, take the place it buys, and enjoy
-            the view until someone arrives with one more dollar.
+            No voting, no curation, no gatekeepers. Whoever pays the most sits at the top, plain and
+            simple, until the next bid knocks them down.
           </p>
 
           <div ref={cardRef} id="bid" className="mt-7 rounded-2xl border border-line bg-card p-4 shadow-sm">
