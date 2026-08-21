@@ -9,6 +9,7 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@vercel/analytics": "^2.0.1",
     "dodopayments": "^2.47.0",
     "next": "16.3.2",
     "postgres": "^3.4.9",
